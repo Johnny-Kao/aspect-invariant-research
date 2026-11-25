@@ -1,0 +1,25 @@
+name: AS-06 official formatting
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Johnny-Kao/aspect
+          ref: 329cfde4197e14128e4f6fa29500f57fcbc99391
+          persist-credentials: false
+      - name: Build AStyle 2.04
+        run: |
+          curl -fsSL https://github.com/tjhei/astyle/releases/download/v2.04/astyle_2.04_linux.tar.gz -o /tmp/astyle.tar.gz
+          tar -xf /tmp/astyle.tar.gz -C /tmp
+          make -C /tmp/astyle/build/gcc -j2
+          /tmp/astyle/build/gcc/bin/astyle --version
+          echo /tmp/astyle/build/gcc/bin >> "$GITHUB_PATH"
+      - name: Run ASPECT official indent script
+        run: |
+          ./contrib/utilities/indent
+          git diff --exit-code

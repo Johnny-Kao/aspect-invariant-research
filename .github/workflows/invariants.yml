@@ -1,0 +1,20 @@
+name: AS-04 to AS-07 invariant checks
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - research/check_as04_as07.py
+      - .github/workflows/invariants.yml
+permissions:
+  contents: read
+jobs:
+  invariant:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        candidate: [AS-04, AS-05, AS-06, AS-07]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile pinned upstream arithmetic and verify counterexamples
+        run: python3 research/check_as04_as07.py ${{ matrix.candidate }}

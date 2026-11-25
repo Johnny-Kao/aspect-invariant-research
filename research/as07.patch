@@ -1,0 +1,48 @@
+diff --git a/source/material_model/utilities.cc b/source/material_model/utilities.cc
+--- a/source/material_model/utilities.cc
++++ b/source/material_model/utilities.cc
+@@ -87,2 +87,4 @@
+-          const double h = value(temperature,pressure,enthalpy_values,interpolation);
+-          const double dh = value(temperature+delta_temp,pressure,enthalpy_values,interpolation);
++          // Use a full table interval even when the query is near the upper boundary.
++          const double t = std::clamp(temperature, min_temp, max_temp-delta_temp);
++          const double h = value(t,pressure,enthalpy_values,interpolation);
++          const double dh = value(t+delta_temp,pressure,enthalpy_values,interpolation);
+@@ -96,2 +98,3 @@
+-          const double h = value(temperature,pressure,enthalpy_values,interpolation);
+-          const double dh = value(temperature,pressure+delta_press,enthalpy_values,interpolation);
++          const double p = std::clamp(pressure, min_press, max_press-delta_press);
++          const double h = value(temperature,p,enthalpy_values,interpolation);
++          const double dh = value(temperature,p+delta_press,enthalpy_values,interpolation);
+@@ -178,2 +181,3 @@
+-          const double rho = value(temperature,pressure,density_values,interpolation);
+-          const double drho = value(temperature,pressure+delta_press,density_values,interpolation);
++          const double p = std::clamp(pressure, min_press, max_press-delta_press);
++          const double rho = value(temperature,p,density_values,interpolation);
++          const double drho = value(temperature,p+delta_press,density_values,interpolation);
+@@ -225,5 +229,6 @@
+-          const double nT = get_nT(temperature);
+-          const unsigned int inT = static_cast<unsigned int>(nT);
+-
+-          const double np = get_np(pressure);
+-          const unsigned int inp = static_cast<unsigned int>(np);
++          const double nT = get_nT(temperature);
++          const double np = get_np(pressure);
++
++          // At the upper endpoint, use the last cell with reference coordinate one.
++          const unsigned int inT = interpol ? std::min(static_cast<unsigned int>(nT), n_temperature-2) : static_cast<unsigned int>(nT);
++          const unsigned int inp = interpol ? std::min(static_cast<unsigned int>(np), n_pressure-2) : static_cast<unsigned int>(np);
+@@ -284,3 +289,3 @@
+-          bounded_temperature=std::min(bounded_temperature, max_temp-delta_temp);
+-
+-          return (bounded_temperature-min_temp)/delta_temp;
++          bounded_temperature=std::min(bounded_temperature, max_temp);
++
++          return std::min((bounded_temperature-min_temp)/delta_temp, static_cast<double>(n_temperature-1));
+@@ -293,3 +298,3 @@
+-          bounded_pressure=std::min(bounded_pressure, max_press-delta_press);
+-
+-          return (bounded_pressure-min_press)/delta_press;
++          bounded_pressure=std::min(bounded_pressure, max_press);
++
++          return std::min((bounded_pressure-min_press)/delta_press, static_cast<double>(n_pressure-1));

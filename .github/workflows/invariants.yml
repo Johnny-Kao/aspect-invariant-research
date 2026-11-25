@@ -4,6 +4,8 @@ on:
   push:
     paths:
       - research/check_as04_as07.py
+      - research/as07.patch
+      - research/check_as07_fix.py
       - .github/workflows/invariants.yml
 permissions:
   contents: read
@@ -18,3 +20,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: Compile pinned upstream arithmetic and verify counterexamples
         run: python3 research/check_as04_as07.py ${{ matrix.candidate }}
+      - name: Verify candidate AS-07 correction
+        if: matrix.candidate == 'AS-07'
+        run: python3 research/check_as07_fix.py

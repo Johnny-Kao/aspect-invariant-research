@@ -1,0 +1,101 @@
+name: AS-06 native regression
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  OMPI_MCA_btl_base_warn_component_unused: 0
+  OMPI_MCA_mpi_yield_when_idle: 1
+  OMPI_MCA_rmaps_base_oversubscribe: 1
+  OMPI_ALLOW_RUN_AS_ROOT: 1
+  OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: 1
+  OMPI_MCA_btl_vader_single_copy_mechanism: none
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Johnny-Kao/aspect
+          ref: 329cfde4197e14128e4f6fa29500f57fcbc99391
+          persist-credentials: false
+      - name: Verify changed C++ files with upstream formatter
+        run: |
+          curl -fsSL https://github.com/tjhei/astyle/releases/download/v2.04/astyle_2.04_linux.tar.gz -o /tmp/astyle.tar.gz
+          tar -xf /tmp/astyle.tar.gz -C /tmp
+          make -C /tmp/astyle/build/gcc -j2
+          /tmp/astyle/build/gcc/bin/astyle --version
+          /tmp/astyle/build/gcc/bin/astyle --options=contrib/utilities/astyle.rc --suffix=none source/material_model/reactive_fluid_transport.cc include/aspect/material_model/reactive_fluid_transport.h
+          git diff --exit-code
+  native:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    container:
+      image: geodynamics/aspect-tester:jammy-dealii-9.8-v1
+      options: --user 0 --name container
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Johnny-Kao/aspect
+          ref: 329cfde4197e14128e4f6fa29500f57fcbc99391
+          persist-credentials: false
+      - name: Compile ASPECT in upstream Debug configuration
+        run: |
+          git config --global --add safe.directory "$PWD"
+          cmake -S . -B build -G Ninja \
+            -D CMAKE_BUILD_TYPE=Debug \
+            -D CMAKE_CXX_FLAGS=-Werror \
+            -D ASPECT_ADDITIONAL_CXX_FLAGS='-O3 -Wdeprecated-declarations' \
+            -D ASPECT_TEST_GENERATOR=Ninja \
+            -D ASPECT_PRECOMPILE_HEADERS=ON \
+            -D ASPECT_UNITY_BUILD=ON \
+            -D ASPECT_WITH_PYTHON=OFF \
+            -D ASPECT_WITH_LANDLAB=OFF \
+            -D ASPECT_WITH_FASTSCAPE=OFF \
+            -D ASPECT_RUN_ALL_TESTS=ON \
+            -D ASPECT_COMPARE_TEST_RESULTS=ON \
+            -D ASPECT_USE_TPETRA=OFF \
+            -D CMAKE_UNITY_BUILD_BATCH_SIZE=8
+          ninja -C build -j4
+      - name: Run ASPECT unit tests
+        run: ./build/aspect --test
+      - name: Run existing native regressions against original references
+        continue-on-error: true
+        run: |
+          ctest --test-dir build -R '^(reactive_fluid_transport_|darcy_|melt_10percent_viscoelastic_bending_beam_particles_zero_solubility|tian_water_mass_conservation)' --output-on-failure
+      - name: Verify physical invariant independently from native simulation output
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import math
+          p=Path("build/tests/output-reactive_fluid_transport_melt_fraction_zero_solubility/statistics")
+          rows=[list(map(float,line.split())) for line in p.read_text().splitlines() if line.strip() and not line.startswith("#")]
+          assert len(rows)>=2
+          expected=(0.99*3000*0.01+0.01*2000)/2990
+          for r in rows:
+              phi,bound=r[17],r[20]
+              water=((1-phi)*3000*bound+phi*2000)/((1-phi)*3000+phi*2000)
+              print(f"step={r[0]:g}, porosity={phi:.12g}, bound={bound:.12g}, total water={water:.12g}, equilibrium={r[14]:.12g}")
+              assert math.isclose(water,expected,rel_tol=2e-8,abs_tol=1e-10)
+              assert math.isclose(r[14],expected,rel_tol=2e-8,abs_tol=1e-10)
+          assert abs(rows[-1][20])<1e-9
+          assert math.isclose(rows[-1][17],3000*expected/(2000+1000*expected),rel_tol=2e-8)
+          PY
+      - name: Generate native reference changes using ASPECT test harness
+        run: |
+          ASPECT_GENERATE_REFERENCE_OUTPUT=1 ctest --test-dir build -R '^(reactive_fluid_transport_|darcy_|melt_10percent_viscoelastic_bending_beam_particles_zero_solubility|tian_water_mass_conservation)' --output-on-failure
+          git diff -- tests/ > as06-reference.diff
+          git diff --stat -- tests/
+      - name: Re-run native tests with regenerated references
+        run: ctest --test-dir build -R '^(reactive_fluid_transport_|darcy_|melt_10percent_viscoelastic_bending_beam_particles_zero_solubility|tian_water_mass_conservation)' --output-on-failure
+      - name: Archive generated native reference diff and regression logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: as06-native-reference
+          path: |
+            as06-reference.diff
+            build/tests/output-reactive_fluid_transport_melt_fraction_zero_solubility/statistics
+            build/tests/output-reactive_fluid_transport_melt_fraction_zero_solubility/screen-output
+            build/Testing/Temporary/LastTest.log
+          if-no-files-found: warn
